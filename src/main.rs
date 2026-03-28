@@ -10,28 +10,43 @@ fn wait() -> () {
     for _ in 0..WAIT_TIME {}
 }
 
+fn blink_led(gpio_odr: *mut u32) -> () {
+    unsafe {
+        *gpio_odr |= 1 << 5;
+        wait();
+        *gpio_odr &= !(1 << 5);
+        wait();
+    }
+}
+
 #[cortex_m_rt::entry]
 fn main() -> ! {
     defmt::info!("hello from miracle");
     let rcc_ahb1enr = 0x40023830 as *mut u32;
     let gpio_moder = 0x40020000 as *mut u32;
     let gpio_odr = 0x40020014  as *mut u32;
+    let gpioc_moder = 0x40020800 as *mut u32; // PC13 - GPIO_C
+    let gpioc_pupdr = 0x4002080C as *mut u32; // PC13 - GPIO_C PUPDR register offset 0x0C
+    let gpioc_idr = 0x40020810 as *mut u32; // PC13 GPIO_C + IDR OFFSET 0x10
 
-   unsafe {
-       *rcc_ahb1enr |= 1 << 0;
+   unsafe { // enable clock and setup
+       *rcc_ahb1enr |= 1 << 0; // enable clock on gpio port A
+       *rcc_ahb1enr |= 1 << 2; // enable clock on gpio port C
        *gpio_moder &= !(1 << 11);
        *gpio_moder |= 1 << 10;
-   }
-
-   loop {
-       unsafe {
-           *gpio_odr |= 1 << 5;
-           wait();
-           *gpio_odr &= !( 1 << 5);
-           wait();
-       }
-   }
-
+       *gpioc_moder &= !(1 << 27); // MODER 13 set bit 27 to 0
+       *gpioc_moder &= !(1 << 26); // MODER 13 set bit 27 to 0
+       *gpioc_pupdr |= 1 << 26; // set bit 26 to 1 - sets to PULL UP - if button is pressed this is pulled to 0
+       loop {
+           if ((*gpioc_idr & (1 << 13)) != 0) { // IDR pin state (pressed/not pressed),
+               // need to check the IDR register for actual IO state. ^
+                 *gpio_odr &= !( 1 << 5); // turn off LD2 bc pin state is 1, button not pressed
+            }
+            else {
+                 *gpio_odr |= 1 << 5; // turn on LD2 bc pin state is 0, button is pressed
+            }
+        }
+    }
 }
 
 /*
