@@ -3,7 +3,7 @@
 
 use defmt_rtt as _;
 use panic_probe as _;
-use stm32f4xx_hal as _;
+use stm32f4xx_hal::{self as _, gpio::alt::SerialFlowControl};
 
 fn wait() -> () {
     const WAIT_TIME: u32 = 100000; // temporarily make it faster ?
@@ -28,6 +28,21 @@ enum GpioPort {
     F,
     G,
     H,
+}
+
+impl GpioPort {
+    fn address(&self) -> u32 {
+        match self {
+            GpioPort::A => 0x40020000,
+            GpioPort::B => 0x40020400,
+            GpioPort::C => 0x40020800,
+            GpioPort::D => 0x40020C00,
+            GpioPort::E => 0x40021000,
+            GpioPort::F => 0x40021400,
+            GpioPort::G => 0x40021800,
+            GpioPort::H => 0x40021C00,
+        }
+    }
 }
 
 enum GpioRegister {
@@ -72,7 +87,7 @@ impl GpioRegister {
             GpioRegister::AFLR => 2,
             GpioRegister::AFHR => 2,
         }
-     }
+    }
 }
 
 struct GpioPin {
@@ -86,17 +101,7 @@ struct GpioPin {
 fn main() -> ! {
     defmt::info!("hello from miracle");
     let rcc_ahb1enr = 0x40023830 as *mut u32;
-    let gpio_clock_control = Rcc::ahb1ener::new();
-    let gpio_port_a = GpioPort::A;
-    gpio_clock_control.enable(gpio_port_a);
-    
     let gpio_moder = 0x40020000 as *mut u32;
-    let gpio_moder = GpioRegister(port, pin, register: GpioRegister::MODER);
-    gpio_moder.clear(bit: 11);
-    gpio_moder.set(bit: 10);
-    let led_control = GpioRegister(gpio_port_a, 13, register: GpioRegister::ODR);
-    led_control.set(bit: 5);
-    led_control.clear(bit: 5); // led on / off
     let gpio_odr = 0x40020014 as *mut u32;
     let gpioc_moder = 0x40020800 as *mut u32; // PC13 - GPIO_C
     let gpioc_pupdr = 0x4002080C as *mut u32; // PC13 - GPIO_C PUPDR register offset 0x0C
