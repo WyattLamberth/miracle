@@ -58,6 +58,21 @@ impl GpioRegister {
             GpioRegister::AFHR => 0x24,
         }
     }
+
+    fn bits_per_pin(&self) -> u8 {
+        match self {
+            GpioRegister::MODER => 2,
+            GpioRegister::OTYPER => 1,
+            GpioRegister::OSPEEDR => 2,
+            GpioRegister::PUPDR => 2,
+            GpioRegister::IDR => 1,
+            GpioRegister::ODR => 1,
+            GpioRegister::BSRR => 2,
+            GpioRegister::LCKR => 2,
+            GpioRegister::AFLR => 2,
+            GpioRegister::AFHR => 2,
+        }
+     }
 }
 
 struct GpioPin {
