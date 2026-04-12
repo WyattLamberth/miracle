@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+use core::ptr::read_volatile;
+
+use cortex_m::prelude::_embedded_hal_timer_CountDown;
 use defmt_rtt as _;
 use panic_probe as _;
 use stm32f4xx_hal::{self as _, gpio::alt::SerialFlowControl};
@@ -10,15 +13,14 @@ fn wait() -> () {
     for _ in 0..WAIT_TIME {}
 }
 
-fn blink_led(gpio_odr: *mut u32) -> () {
-    unsafe {
-        *gpio_odr |= 1 << 5;
-        wait();
-        *gpio_odr &= !(1 << 5);
-        wait();
-    }
+fn blink_led(reg: GpioRegister, led_pin: &GpioPin) -> () {
+    led_pin.set(reg, 5);
+    wait();
+    led_pin.clear(reg, 5);
+    wait();
 }
 
+#[derive(Copy, Clone)]
 enum GpioPort {
     A,
     B,
@@ -45,6 +47,7 @@ impl GpioPort {
     }
 }
 
+#[derive(Copy, Clone)]
 enum GpioRegister {
     MODER,
     OTYPER,
@@ -91,16 +94,54 @@ impl GpioRegister {
 }
 
 struct GpioPin {
-    register: GpioRegister,
-    pin: u8,
     port: GpioPort,
-    address: u32,
+    pin: u8,
+}
+
+impl GpioPin {
+    fn new(port: GpioPort, pin: u8) -> Self {
+        GpioPin {
+            port: port,
+            pin: pin,
+        }
+    }
+
+    fn set(&self, register: GpioRegister, bit: u8) -> () {
+        // set bit to 1
+        let address = register.offset() + self.port.address();
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | (1 << bit));
+        }
+    }
+
+    fn clear(&self, register: GpioRegister, bit: u8) -> () {
+        // set bit to 0
+        let address = register.offset() + self.port.address();
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val & !(1 << bit));
+        }
+    }
 }
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
     defmt::info!("hello from miracle");
     let rcc_ahb1enr = 0x40023830 as *mut u32;
+    unsafe {
+        *rcc_ahb1enr |= 1 << 0; // enable clock on gpio port A
+        *rcc_ahb1enr |= 1 << 2; // enable clock on gpio port C
+    }
+
+    let pa5 = GpioPin::new(GpioPort::A, 21);
+    pa5.clear(GpioRegister::MODER, 11);
+    pa5.set(GpioRegister::MODER, 10);
+    loop {
+        blink_led(GpioRegister::ODR, &pa5);
+    }
     let gpio_moder = 0x40020000 as *mut u32;
     let gpio_odr = 0x40020014 as *mut u32;
     let gpioc_moder = 0x40020800 as *mut u32; // PC13 - GPIO_C
