@@ -100,7 +100,7 @@ struct GpioPin {
 
 impl GpioPin {
     fn new(port: GpioPort, pin: u8) -> Self {
-        GpioPin {
+        // GpioPin {
             port: port,
             pin: pin,
         }
@@ -145,11 +145,11 @@ fn main() -> ! {
         *rcc_ahb1enr |= 1 << 2; // enable clock on gpio port C
     }
 
-    let pa5 = GpioPin::new(GpioPort::A, 21);
+    let pa5 = GpioPin::new(GpioPort::A, 5);
     pa5.clear(GpioRegister::MODER, 11);
     pa5.set(GpioRegister::MODER, 10);
 
-    let pc13 = GpioPin::new(GpioPort::C, 2);
+    let pc13 = GpioPin::new(GpioPort::C, 13);
     pc13.clear(GpioRegister::MODER, 27);
     pc13.clear(GpioRegister::MODER, 26);
     pc13.set(GpioRegister::PUPDR, 26);
