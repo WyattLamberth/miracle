@@ -8,18 +8,6 @@ use defmt_rtt as _;
 use panic_probe as _;
 use stm32f4xx_hal::{self as _, gpio::alt::SerialFlowControl};
 
-fn wait() -> () {
-    const WAIT_TIME: u32 = 100000; // temporarily make it faster ?
-    for _ in 0..WAIT_TIME {}
-}
-
-fn blink_led(reg: GpioRegister, led_pin: &GpioPin) -> () {
-    led_pin.set(reg, 5);
-    wait();
-    led_pin.clear(reg, 5);
-    wait();
-}
-
 #[derive(Copy, Clone)]
 enum GpioPort {
     A,
@@ -100,7 +88,7 @@ struct GpioPin {
 
 impl GpioPin {
     fn new(port: GpioPort, pin: u8) -> Self {
-        // GpioPin {
+        GpioPin {
             port: port,
             pin: pin,
         }
@@ -155,54 +143,11 @@ fn main() -> ! {
     pc13.set(GpioRegister::PUPDR, 26);
     loop {
         if pc13.read(GpioRegister::IDR, 13) {
-            pa5.clear(GpioRegister::ODR, 5);
+            // if button not pressed
+            pa5.clear(GpioRegister::ODR, 5); // LED off
         } else {
-            pa5.set(GpioRegister::ODR, 5);
+            // button is pressed
+            pa5.set(GpioRegister::ODR, 5); // LED on
         }
-        //blink_led(GpioRegister::ODR, &pa5);
     }
 }
-
-/*
-/
-
-#include <stdint.h>
-
-#if !defined(__SOFT_FP__) && defined(__ARM_FP)
-  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
-#endif
-
-void wait() {
-    for (volatile int i = 0; i < 1000000; i++) {
-        ;
-    }
-}
-
-int main(void)
-{
-    /* Loop forever */
-
-    // GPIOA = 0x4002 0000 - 0x4002 03FF
-
-    volatile uint32_t* RCC_AHB1ENR = (uint32_t*)0x40023830; // base address + 0x30 offset = 0x40023800 + 0x30
-
-    volatile uint32_t* GPIOA_MODER = (uint32_t*)0x40020000;
-
-    volatile uint32_t* GPIOA_ODR = (uint32_t*)0x40020014; // base address + offset
-
-    *RCC_AHB1ENR |= 1 <<0; // enable clock
-    *GPIOA_MODER &= ~(1 << 11); // clear bit 11 on MODER5 to 0
-    *GPIOA_MODER |= 1 << 10; // set bit 10 to 1
-
-    int true = 1;
-    while (true) {
-        *GPIOA_ODR |= 1 << 5;
-        wait();
-        *GPIOA_ODR &= ~(1 << 5);
-        wait();
-    }
-
-    for(;;);
-}
-
- */
