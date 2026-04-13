@@ -160,9 +160,20 @@ impl GpioPin {
         }
     }
 
-    fn set(&self, register: GpioRegister, bit: u8) -> () {
+    fn bit_offset(&self, reg: GpioRegister) -> u8 {
+        let bit = self.pin * reg.bits_per_pin();
+        return bit;
+    }
+
+    fn address_offset(&self, reg: GpioRegister) -> u32 {
+        let address = self.port.address() + reg.offset();
+        return address;
+    }
+
+    fn set(&self, register: GpioRegister) -> () {
         // set bit to 1
-        let address = register.offset() + self.port.address();
+        let bit = self.bit_offset(register);
+        let address = self.address_offset(register);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -170,9 +181,10 @@ impl GpioPin {
         }
     }
 
-    fn clear(&self, register: GpioRegister, bit: u8) -> () {
+    fn clear(&self, register: GpioRegister) -> () {
         // set bit to 0
-        let address = register.offset() + self.port.address();
+        let bit = self.bit_offset(register);
+        let address = self.address_offset(register);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -180,8 +192,9 @@ impl GpioPin {
         }
     }
 
-    fn read(&self, register: GpioRegister, bit: u8) -> bool {
-        let address = register.offset() + self.port.address();
+    fn read(&self, register: GpioRegister) -> bool {
+        let bit = self.bit_offset(register);
+        let address = self.address_offset(register);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -190,7 +203,7 @@ impl GpioPin {
     }
 
     fn clear_reg_bits(&self, reg: GpioRegister) -> () {
-        let bits = self.pin * reg.bits_per_pin();
+        let bits = self.bit_offset(reg);
         let mask: u8;
         match reg.bits_per_pin() {
             1 => mask = 0b01,
@@ -198,7 +211,7 @@ impl GpioPin {
             _ => unreachable!(), // impossible given our register definitions
         };
 
-        let address = reg.offset() + self.port.address();
+        let address = self.address_offset(reg);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -207,9 +220,10 @@ impl GpioPin {
     }
 
     fn set_mode(&self, mode: ModerState) -> () {
-        let bits = self.pin * GpioRegister::MODER.bits_per_pin(); // starting bit
-        let address = GpioRegister::MODER.offset() + self.port.address();
-        self.clear_reg_bits(GpioRegister::MODER); // ensure the bits are ready to set a mode
+        let reg = GpioRegister::MODER;
+        let bits = self.bit_offset(reg); // starting bit
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg); // ensure the bits are ready to set a mode
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -218,9 +232,10 @@ impl GpioPin {
     }
 
     fn set_speed(&self, speed: OSpeedrState) -> () {
-        let bits = self.pin * GpioRegister::OSPEEDR.bits_per_pin();
-        let address = GpioRegister::OSPEEDR.offset() + self.port.address();
-        self.clear_reg_bits(GpioRegister::OSPEEDR);
+        let reg = GpioRegister::OSPEEDR;
+        let bits = self.bit_offset(reg);
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -229,9 +244,10 @@ impl GpioPin {
     }
 
     fn set_output_type(&self, output_type: OTyperState) -> () {
-        let bits = self.pin * GpioRegister::OTYPER.bits_per_pin();
-        let address = GpioRegister::OTYPER.offset() + self.port.address();
-        self.clear_reg_bits(GpioRegister::OTYPER);
+        let reg = GpioRegister::OTYPER;
+        let bits = self.bit_offset(reg);
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -240,9 +256,10 @@ impl GpioPin {
     }
 
     fn set_pull(&self, pull: PupdrState) -> () {
-        let bits = self.pin * GpioRegister::PUPDR.bits_per_pin();
-        let address = GpioRegister::PUPDR.offset() + self.port.address();
-        self.clear_reg_bits(GpioRegister::PUPDR);
+        let reg = GpioRegister::PUPDR;
+        let bits = self.bit_offset(reg);
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg);
         unsafe {
             let ptr = address as *mut u32;
             let val = ptr.read_volatile();
@@ -261,22 +278,18 @@ fn main() -> ! {
     }
 
     let pa5 = GpioPin::new(GpioPort::A, 5);
-    // pa5.clear(GpioRegister::MODER, 11);
-    // pa5.set(GpioRegister::MODER, 10);
-    pa5.set_mode(ModerState::Output);
     let pc13 = GpioPin::new(GpioPort::C, 13);
-    // pc13.clear(GpioRegister::MODER, 27);
-    // pc13.clear(GpioRegister::MODER, 26);
+    pa5.set_mode(ModerState::Output);
     pc13.set_mode(ModerState::Input);
     pc13.set_pull(PupdrState::PullUp);
-    // pc13.set(GpioRegister::PUPDR, 26);
+
     loop {
-        if pc13.read(GpioRegister::IDR, 13) {
+        if pc13.read(GpioRegister::IDR) {
             // if button not pressed
-            pa5.clear(GpioRegister::ODR, 5); // LED off
+            pa5.clear(GpioRegister::ODR); // LED off
         } else {
             // button is pressed
-            pa5.set(GpioRegister::ODR, 5); // LED on
+            pa5.set(GpioRegister::ODR); // LED on
         }
     }
 }
