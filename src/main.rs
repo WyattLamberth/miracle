@@ -1,21 +1,270 @@
 #![no_std]
 #![no_main]
 
+use core::ptr::read_volatile;
+
+use cortex_m::prelude::_embedded_hal_timer_CountDown;
 use defmt_rtt as _;
 use panic_probe as _;
-use stm32f4xx_hal as _;
+use stm32f4xx_hal::{self as _, gpio::alt::SerialFlowControl};
 
-fn wait() -> () {
-    const WAIT_TIME: u32 = 100000; // temporarily make it faster ?
-    for _ in 0..WAIT_TIME {}
+#[derive(Copy, Clone)]
+enum GpioPort {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
 }
 
-fn blink_led(gpio_odr: *mut u32) -> () {
-    unsafe {
-        *gpio_odr |= 1 << 5;
-        wait();
-        *gpio_odr &= !(1 << 5);
-        wait();
+impl GpioPort {
+    fn address(&self) -> u32 {
+        match self {
+            GpioPort::A => 0x40020000,
+            GpioPort::B => 0x40020400,
+            GpioPort::C => 0x40020800,
+            GpioPort::D => 0x40020C00,
+            GpioPort::E => 0x40021000,
+            GpioPort::F => 0x40021400,
+            GpioPort::G => 0x40021800,
+            GpioPort::H => 0x40021C00,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum GpioRegister {
+    MODER,
+    OTYPER,
+    OSPEEDR,
+    PUPDR,
+    IDR,
+    ODR,
+    BSRR,
+    LCKR,
+    AFLR,
+    AFHR,
+}
+
+impl GpioRegister {
+    fn offset(&self) -> u32 {
+        match self {
+            GpioRegister::MODER => 0x00,
+            GpioRegister::OTYPER => 0x04,
+            GpioRegister::OSPEEDR => 0x08,
+            GpioRegister::PUPDR => 0x0C,
+            GpioRegister::IDR => 0x10,
+            GpioRegister::ODR => 0x14,
+            GpioRegister::BSRR => 0x18,
+            GpioRegister::LCKR => 0x1C,
+            GpioRegister::AFLR => 0x20,
+            GpioRegister::AFHR => 0x24,
+        }
+    }
+
+    fn bits_per_pin(&self) -> u8 {
+        match self {
+            GpioRegister::MODER => 2,
+            GpioRegister::OTYPER => 1,
+            GpioRegister::OSPEEDR => 2,
+            GpioRegister::PUPDR => 2,
+            GpioRegister::IDR => 1,
+            GpioRegister::ODR => 1,
+            GpioRegister::BSRR => 2,
+            GpioRegister::LCKR => 2,
+            GpioRegister::AFLR => 2,
+            GpioRegister::AFHR => 2,
+        }
+    }
+}
+
+enum ModerState {
+    Input,
+    Output,
+    Alternate,
+    Analog,
+}
+
+impl ModerState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            ModerState::Input => 0b00,
+            ModerState::Output => 0b01,
+            ModerState::Alternate => 0b10,
+            ModerState::Analog => 0b11,
+        }
+    }
+}
+
+enum OTyperState {
+    PushPull,
+    OpenDrain,
+}
+
+impl OTyperState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            OTyperState::PushPull => 0b00,
+            OTyperState::OpenDrain => 0b01,
+        }
+    }
+}
+
+enum OSpeedrState {
+    Low,
+    Medium,
+    Fast,
+    High,
+}
+
+impl OSpeedrState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            OSpeedrState::Low => 0b00,
+            OSpeedrState::Medium => 0b01,
+            OSpeedrState::Fast => 0b10,
+            OSpeedrState::High => 0b11,
+        }
+    }
+}
+
+enum PupdrState {
+    NoPullUpPullDown,
+    PullUp,
+    PullDown,
+}
+
+impl PupdrState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            PupdrState::NoPullUpPullDown => 0b00,
+            PupdrState::PullUp => 0b01,
+            PupdrState::PullDown => 0b10,
+        }
+    }
+}
+
+struct GpioPin {
+    port: GpioPort,
+    pin: u8,
+}
+
+impl GpioPin {
+    fn new(port: GpioPort, pin: u8) -> Self {
+        GpioPin {
+            port: port,
+            pin: pin,
+        }
+    }
+
+    fn bit_offset(&self, reg: GpioRegister) -> u8 {
+        let bit = self.pin * reg.bits_per_pin();
+        return bit;
+    }
+
+    fn address_offset(&self, reg: GpioRegister) -> u32 {
+        let address = self.port.address() + reg.offset();
+        return address;
+    }
+
+    fn set(&self, register: GpioRegister) -> () {
+        // set bit to 1
+        let bit = self.bit_offset(register);
+        let address = self.address_offset(register);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | (1 << bit));
+        }
+    }
+
+    fn clear(&self, register: GpioRegister) -> () {
+        // set bit to 0
+        let bit = self.bit_offset(register);
+        let address = self.address_offset(register);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val & !(1 << bit));
+        }
+    }
+
+    fn read(&self, register: GpioRegister) -> bool {
+        let bit = self.bit_offset(register);
+        let address = self.address_offset(register);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            val & (1 << bit) != 0
+        }
+    }
+
+    fn clear_reg_bits(&self, reg: GpioRegister) -> () {
+        let bits = self.bit_offset(reg);
+        let mask: u8;
+        match reg.bits_per_pin() {
+            1 => mask = 0b01,
+            2 => mask = 0b11,
+            _ => unreachable!(), // impossible given our register definitions
+        };
+
+        let address = self.address_offset(reg);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val & !((mask as u32) << (bits as u32))); // clear bits we want to set the mode of
+        }
+    }
+
+    fn set_mode(&self, mode: ModerState) -> () {
+        let reg = GpioRegister::MODER;
+        let bits = self.bit_offset(reg); // starting bit
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg); // ensure the bits are ready to set a mode
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((mode.bit_pattern() as u32) << (bits as u32))) // set the desired mode
+        }
+    }
+
+    fn set_speed(&self, speed: OSpeedrState) -> () {
+        let reg = GpioRegister::OSPEEDR;
+        let bits = self.bit_offset(reg);
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((speed.bit_pattern() as u32) << (bits as u32)));
+        }
+    }
+
+    fn set_output_type(&self, output_type: OTyperState) -> () {
+        let reg = GpioRegister::OTYPER;
+        let bits = self.bit_offset(reg);
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((output_type.bit_pattern() as u32) << (bits as u32)));
+        }
+    }
+
+    fn set_pull(&self, pull: PupdrState) -> () {
+        let reg = GpioRegister::PUPDR;
+        let bits = self.bit_offset(reg);
+        let address = self.address_offset(reg);
+        self.clear_reg_bits(reg);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((pull.bit_pattern() as u32) << (bits as u32)));
+        }
     }
 }
 
@@ -23,72 +272,24 @@ fn blink_led(gpio_odr: *mut u32) -> () {
 fn main() -> ! {
     defmt::info!("hello from miracle");
     let rcc_ahb1enr = 0x40023830 as *mut u32;
-    let gpio_moder = 0x40020000 as *mut u32;
-    let gpio_odr = 0x40020014  as *mut u32;
-    let gpioc_moder = 0x40020800 as *mut u32; // PC13 - GPIO_C
-    let gpioc_pupdr = 0x4002080C as *mut u32; // PC13 - GPIO_C PUPDR register offset 0x0C
-    let gpioc_idr = 0x40020810 as *mut u32; // PC13 GPIO_C + IDR OFFSET 0x10
+    unsafe {
+        *rcc_ahb1enr |= 1 << 0; // enable clock on gpio port A
+        *rcc_ahb1enr |= 1 << 2; // enable clock on gpio port C
+    }
 
-   unsafe { // enable clock and setup
-       *rcc_ahb1enr |= 1 << 0; // enable clock on gpio port A
-       *rcc_ahb1enr |= 1 << 2; // enable clock on gpio port C
-       *gpio_moder &= !(1 << 11);
-       *gpio_moder |= 1 << 10;
-       *gpioc_moder &= !(1 << 27); // MODER 13 set bit 27 to 0
-       *gpioc_moder &= !(1 << 26); // MODER 13 set bit 27 to 0
-       *gpioc_pupdr |= 1 << 26; // set bit 26 to 1 - sets to PULL UP - if button is pressed this is pulled to 0
-       loop {
-           if ((*gpioc_idr & (1 << 13)) != 0) { // IDR pin state (pressed/not pressed),
-               // need to check the IDR register for actual IO state. ^
-                 *gpio_odr &= !( 1 << 5); // turn off LD2 bc pin state is 1, button not pressed
-            }
-            else {
-                 *gpio_odr |= 1 << 5; // turn on LD2 bc pin state is 0, button is pressed
-            }
+    let pa5 = GpioPin::new(GpioPort::A, 5);
+    let pc13 = GpioPin::new(GpioPort::C, 13);
+    pa5.set_mode(ModerState::Output);
+    pc13.set_mode(ModerState::Input);
+    pc13.set_pull(PupdrState::PullUp);
+
+    loop {
+        if pc13.read(GpioRegister::IDR) {
+            // if button not pressed
+            pa5.clear(GpioRegister::ODR); // LED off
+        } else {
+            // button is pressed
+            pa5.set(GpioRegister::ODR); // LED on
         }
     }
 }
-
-/*
-/
-
-#include <stdint.h>
-
-#if !defined(__SOFT_FP__) && defined(__ARM_FP)
-  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
-#endif
-
-void wait() {
-	for (volatile int i = 0; i < 1000000; i++) {
-		;
-	}
-}
-
-int main(void)
-{
-    /* Loop forever */
-
-	// GPIOA = 0x4002 0000 - 0x4002 03FF
-
-	volatile uint32_t* RCC_AHB1ENR = (uint32_t*)0x40023830; // base address + 0x30 offset = 0x40023800 + 0x30
-
-	volatile uint32_t* GPIOA_MODER = (uint32_t*)0x40020000;
-
-	volatile uint32_t* GPIOA_ODR = (uint32_t*)0x40020014; // base address + offset
-
-	*RCC_AHB1ENR |= 1 <<0; // enable clock
-	*GPIOA_MODER &= ~(1 << 11); // clear bit 11 on MODER5 to 0
-	*GPIOA_MODER |= 1 << 10; // set bit 10 to 1
-
-	int true = 1;
-	while (true) {
-		*GPIOA_ODR |= 1 << 5;
-		wait();
-		*GPIOA_ODR &= ~(1 << 5);
-		wait();
-	}
-
-	for(;;);
-}
-
- */
