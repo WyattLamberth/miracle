@@ -81,6 +81,72 @@ impl GpioRegister {
     }
 }
 
+enum ModerState {
+    Input,
+    Output,
+    Alternate,
+    Analog,
+}
+
+impl ModerState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            ModerState::Input => 0b00,
+            ModerState::Output => 0b01,
+            ModerState::Alternate => 0b10,
+            ModerState::Analog => 0b11,
+        }
+    }
+}
+
+enum OTyperState {
+    PushPull,
+    OpenDrain,
+}
+
+impl OTyperState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            OTyperState::PushPull => 0b00,
+            OTyperState::OpenDrain => 0b01,
+        }
+    }
+}
+
+enum OSpeedrState {
+    Low,
+    Medium,
+    Fast,
+    High,
+}
+
+impl OSpeedrState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            OSpeedrState::Low => 0b00,
+            OSpeedrState::Medium => 0b01,
+            OSpeedrState::Fast => 0b10,
+            OSpeedrState::High => 0b11,
+        }
+    }
+}
+
+enum PupdrState {
+    NoPullUpPullDown,
+    PullUp,
+    PullDown,
+}
+
+impl PupdrState {
+    fn bit_pattern(&self) -> u8 {
+        match self {
+            PupdrState::NoPullUpPullDown => 0b00,
+            PupdrState::PullUp => 0b01,
+            PupdrState::PullDown => 0b10,
+        }
+    }
+}
+
 struct GpioPin {
     port: GpioPort,
     pin: u8,
@@ -122,6 +188,34 @@ impl GpioPin {
             val & (1 << bit) != 0
         }
     }
+
+    fn clear_reg_bits(&self, reg: GpioRegister) -> () {
+        let bits = self.pin * reg.bits_per_pin();
+        let mask: u8;
+        match reg.bits_per_pin() {
+            1 => mask = 0b01,
+            2 => mask = 0b11,
+            _ => unreachable!(), // impossible given our register definitions
+        };
+
+        let address = reg.offset() + self.port.address();
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val & !((mask as u32) << (bits as u32))); // clear bits we want to set the mode of
+        }
+    }
+
+    fn set_mode(&self, mode: ModerState) -> () {
+        let bits = self.pin * GpioRegister::MODER.bits_per_pin(); // starting bit
+        let address = GpioRegister::MODER.offset() + self.port.address();
+        self.clear_reg_bits(GpioRegister::MODER); // ensure the bits are ready to set a mode
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((mode.bit_pattern() as u32) << (bits as u32))) // set the desired mode
+        }
+    }
 }
 
 #[cortex_m_rt::entry]
@@ -134,12 +228,13 @@ fn main() -> ! {
     }
 
     let pa5 = GpioPin::new(GpioPort::A, 5);
-    pa5.clear(GpioRegister::MODER, 11);
-    pa5.set(GpioRegister::MODER, 10);
-
+    // pa5.clear(GpioRegister::MODER, 11);
+    // pa5.set(GpioRegister::MODER, 10);
+    pa5.set_mode(ModerState::Output);
     let pc13 = GpioPin::new(GpioPort::C, 13);
-    pc13.clear(GpioRegister::MODER, 27);
-    pc13.clear(GpioRegister::MODER, 26);
+    // pc13.clear(GpioRegister::MODER, 27);
+    // pc13.clear(GpioRegister::MODER, 26);
+    pc13.set_mode(ModerState::Input);
     pc13.set(GpioRegister::PUPDR, 26);
     loop {
         if pc13.read(GpioRegister::IDR, 13) {
