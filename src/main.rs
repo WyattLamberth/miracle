@@ -216,6 +216,39 @@ impl GpioPin {
             ptr.write_volatile(val | ((mode.bit_pattern() as u32) << (bits as u32))) // set the desired mode
         }
     }
+
+    fn set_speed(&self, speed: OSpeedrState) -> () {
+        let bits = self.pin * GpioRegister::OSPEEDR.bits_per_pin();
+        let address = GpioRegister::OSPEEDR.offset() + self.port.address();
+        self.clear_reg_bits(GpioRegister::OSPEEDR);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((speed.bit_pattern() as u32) << (bits as u32)));
+        }
+    }
+
+    fn set_output_type(&self, output_type: OTyperState) -> () {
+        let bits = self.pin * GpioRegister::OTYPER.bits_per_pin();
+        let address = GpioRegister::OTYPER.offset() + self.port.address();
+        self.clear_reg_bits(GpioRegister::OTYPER);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((output_type.bit_pattern() as u32) << (bits as u32)));
+        }
+    }
+
+    fn set_pull(&self, pull: PupdrState) -> () {
+        let bits = self.pin * GpioRegister::PUPDR.bits_per_pin();
+        let address = GpioRegister::PUPDR.offset() + self.port.address();
+        self.clear_reg_bits(GpioRegister::PUPDR);
+        unsafe {
+            let ptr = address as *mut u32;
+            let val = ptr.read_volatile();
+            ptr.write_volatile(val | ((pull.bit_pattern() as u32) << (bits as u32)));
+        }
+    }
 }
 
 #[cortex_m_rt::entry]
@@ -235,7 +268,8 @@ fn main() -> ! {
     // pc13.clear(GpioRegister::MODER, 27);
     // pc13.clear(GpioRegister::MODER, 26);
     pc13.set_mode(ModerState::Input);
-    pc13.set(GpioRegister::PUPDR, 26);
+    pc13.set_pull(PupdrState::PullUp);
+    // pc13.set(GpioRegister::PUPDR, 26);
     loop {
         if pc13.read(GpioRegister::IDR, 13) {
             // if button not pressed
